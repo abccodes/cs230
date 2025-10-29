@@ -1,0 +1,9 @@
+.git
+**/__pycache__/
+**/*.o
+**/build/
+**/out/
+**/findings/
+**/crashes/
+**/queue/
+

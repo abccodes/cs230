@@ -1,0 +1,16 @@
+services:
+  afl:
+    image: cs230/afl-env
+    container_name: aflplay
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ulimits:
+      core: 0
+    tty: true
+    stdin_open: true
+
