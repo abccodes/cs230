@@ -73,3 +73,7 @@ Remove unused containers:
 docker rm <container_id>
 
 ---
+
+## Other information
+
+- You must clone and build on docker on the same type of machine (eg. Clone using git on Windows, and build using Docker for Windows) due to symlink incompatabilities. For example, you cannot clone on WSL and build using Docker for Windows
