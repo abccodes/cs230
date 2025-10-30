@@ -49,19 +49,6 @@ afl-fuzz --version
 
 ---
 
-## 🔍 Running AFL++
-
-Example fuzzing session:
-
-mkdir -p fuzz/in fuzz/out
-echo "seed" > fuzz/in/seed.txt
-
-afl-fuzz -i fuzz/in -o fuzz/out -- ./targets/simpleparse_afl @@
-
-AFL++ will start mutating your inputs and show real-time stats.
-
----
-
 ## 🧩 Using Docker Compose (optional)
 
 If you prefer a one-liner startup, use:
