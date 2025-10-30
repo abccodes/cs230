@@ -1907,12 +1907,19 @@ bool ModuleSanitizerCoverageLTO::InjectCoverage(
   // Get or create printf declaration
   Function *PrintfFunc = M->getFunction("printf");
   if (!PrintfFunc) {
-    FunctionType *PrintfType =
-        FunctionType::get(IntegerType::getInt32Ty(Ctx),
-                          PointerType::get(Type::getInt8Ty(Ctx), 0), true);
+    FunctionType *PrintfType = FunctionType::get(
+        IntegerType::getInt32Ty(Ctx), PointerType::get(Type::getInt8Ty(Ctx), 0),
+        true /* isVarArg */);
     PrintfFunc =
         Function::Create(PrintfType, Function::ExternalLinkage, "printf", M);
   }
+
+  // Create a global variable for the total enter count
+  GlobalVariable *TotalCountGV = new GlobalVariable(
+      *M, IntegerType::getInt32Ty(Ctx),
+      false,  // not constant
+      GlobalValue::InternalLinkage,
+      ConstantInt::get(IntegerType::getInt32Ty(Ctx), 0), "total_enter_count");
 
   // Iterate over all basic blocks
   for (size_t i = 0; i < AllBlocks.size(); ++i) {
@@ -1923,23 +1930,50 @@ bool ModuleSanitizerCoverageLTO::InjectCoverage(
     std::string BBName = BB->getName().empty() ? ("BB" + std::to_string(i))
                                                : BB->getName().str();
 
-    // Create the string "Entering BB: <name>\n" for this basic block
-    std::string Msg = "Entering BB: " + BBName + "\n";
-    Constant   *FormatStr = ConstantDataArray::getString(Ctx, Msg, true);
+    // ------------------------------------------------------------------------
+    // 1️⃣ Print "Entering BB: <name>"
+    // ------------------------------------------------------------------------
+    std::string EnterMsg = "Entering BB: " + BBName + "\n";
+    Constant   *EnterStr = ConstantDataArray::getString(Ctx, EnterMsg, true);
 
-    // Create a unique global variable for each string
-    GlobalVariable *GV = new GlobalVariable(
-        *M, FormatStr->getType(), true, GlobalValue::PrivateLinkage, FormatStr,
-        "bb_msg_" + BBName);  // Ensure the global name is unique
+    GlobalVariable *EnterGV =
+        new GlobalVariable(*M, EnterStr->getType(),
+                           true,                         // isConstant
+                           GlobalValue::PrivateLinkage,  // linkage
+                           EnterStr, "bb_msg_" + BBName);
 
-    // Get pointer to the string
     Constant *Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
     Constant *Indices[] = {Zero, Zero};
-    Constant *StrPtr = ConstantExpr::getInBoundsGetElementPtr(
-        FormatStr->getType(), GV, Indices);
+    Constant *EnterStrPtr = ConstantExpr::getInBoundsGetElementPtr(
+        EnterStr->getType(), EnterGV, Indices);
 
-    // Insert the printf call
-    IRB.CreateCall(PrintfFunc, {StrPtr});
+    IRB.CreateCall(PrintfFunc, {EnterStrPtr});
+
+    // ------------------------------------------------------------------------
+    // 2️⃣ Increment and print the total basic-block entry counter
+    // ------------------------------------------------------------------------
+    LoadInst *TotalCountLoad = IRB.CreateLoad(IntegerType::getInt32Ty(Ctx),
+                                              TotalCountGV, "total_count_load");
+
+    Value *IncrementedTotalCount =
+        IRB.CreateAdd(TotalCountLoad, ConstantInt::get(Ctx, APInt(32, 1)),
+                      "incremented_total");
+
+    IRB.CreateStore(IncrementedTotalCount, TotalCountGV);
+
+    // Print the updated total count
+    std::string CountMsg = "BB Depth: %d\n";
+    Constant   *CountFormatStr =
+        ConstantDataArray::getString(Ctx, CountMsg, true);
+
+    GlobalVariable *CountGV = new GlobalVariable(
+        *M, CountFormatStr->getType(), true, GlobalValue::PrivateLinkage,
+        CountFormatStr, "total_msg");
+
+    Constant *CountStrPtr = ConstantExpr::getInBoundsGetElementPtr(
+        CountFormatStr->getType(), CountGV, Indices);
+
+    IRB.CreateCall(PrintfFunc, {CountStrPtr, IncrementedTotalCount});
   }
 
   return true;  // Indicate that we modified the function
