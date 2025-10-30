@@ -483,7 +483,7 @@ src/afl-performance.o: $(COMM_HDR) src/afl-performance.c
 src/afl-common.o: $(COMM_HDR) src/afl-common.c include/envs.h
 	$(CC) $(CFLAGS) $(CFLAGS_FLTO) $(SPECIAL_PERFORMANCE) -c src/afl-common.c -o src/afl-common.o
 
-src/afl-forkserver.o: $(COMM_HDR) src/afl-forkserver.c 
+src/afl-forkserver.o: $(COMM_HDR) src/afl-forkserver.c
 	$(CC) $(CFLAGS) $(CFLAGS_FLTO) $(SPECIAL_PERFORMANCE) -c src/afl-forkserver.c -o src/afl-forkserver.o
 
 src/afl-sharedmem.o: $(COMM_HDR) src/afl-sharedmem.c include/android-ashmem.h include/cmplog.h
@@ -726,10 +726,10 @@ ifndef NO_NYX
 endif
 endif
 ifndef NO_QEMU
-	-cd qemu_mode && sh ./build_qemu_support.sh
+
 endif
 ifndef NO_UNICORN
-	-cd unicorn_mode && unset CFLAGS && ./build_unicorn_support.py
+
 endif
 endif
 
