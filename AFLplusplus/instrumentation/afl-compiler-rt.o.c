@@ -288,22 +288,10 @@ static void at_exit(int signal) {
 
 void __afl_trace(const u32 x) {
 
-  PREV_LOC_T prev = __afl_prev_loc[0];
-  __afl_prev_loc[0] = (x >> 1);
-
-  u8 *p = &__afl_area_ptr[prev ^ x];
-
-#if 1                                      /* enable for neverZero feature. */
-  #if __GNUC__
-  u8 c = __builtin_add_overflow(*p, 1, p);
-  *p += c;
-  #else
-  *p += 1 + ((u8)(1 + *p) == 0);
-  #endif
-#else
-  ++*p;
-#endif
-
+  /* No-op: instrumentation writes disabled to strip feedback.
+     This prevents updates to the shared coverage bitmap from the
+     instrumented target. */
+  (void)x;
   return;
 
 }
@@ -1546,49 +1534,10 @@ __attribute__((constructor(0))) void __afl_auto_first(void) {
 
 void __sanitizer_cov_trace_pc_guard(uint32_t *guard) {
 
-  // For stability analysis, if you want to know to which function unstable
-  // edge IDs belong - uncomment, recompile+install llvm_mode, recompile
-  // the target. libunwind and libbacktrace are better solutions.
-  // Set AFL_DEBUG_CHILD=1 and run afl-fuzz with 2>file to capture
-  // the backtrace output
-  /*
-  uint32_t unstable[] = { ... unstable edge IDs };
-  uint32_t idx;
-  char bt[1024];
-  for (idx = 0; i < sizeof(unstable)/sizeof(uint32_t); i++) {
-
-    if (unstable[idx] == __afl_area_ptr[*guard]) {
-
-      int bt_size = backtrace(bt, 256);
-      if (bt_size > 0) {
-
-        char **bt_syms = backtrace_symbols(bt, bt_size);
-        if (bt_syms) {
-
-          fprintf(stderr, "DEBUG: edge=%u caller=%s\n", unstable[idx],
-  bt_syms[0]);
-          free(bt_syms);
-
-        }
-
-      }
-
-    }
-
-  }
-
-  */
-
-#if (LLVM_VERSION_MAJOR < 9)
-
-  __afl_area_ptr[*guard]++;
-
-#else
-
-  __afl_area_ptr[*guard] =
-      __afl_area_ptr[*guard] + 1 + (__afl_area_ptr[*guard] == 255 ? 1 : 0);
-
-#endif
+  /* No-op PC guard instrumentation: avoid updating coverage map from
+     sanitizer-based instrumentation. */
+  (void)guard;
+  return;
 
 }
 

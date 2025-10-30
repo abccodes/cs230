@@ -218,36 +218,10 @@ void init_count_class16(void) {
 
 inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
-#ifdef WORD_SIZE_64
-
-  u64 *current = (u64 *)afl->fsrv.trace_bits;
-  u64 *virgin = (u64 *)virgin_map;
-
-  u32 i = ((afl->fsrv.real_map_size + 7) >> 3);
-
-#else
-
-  u32 *current = (u32 *)afl->fsrv.trace_bits;
-  u32 *virgin = (u32 *)virgin_map;
-
-  u32 i = ((afl->fsrv.real_map_size + 3) >> 2);
-
-#endif                                                     /* ^WORD_SIZE_64 */
-
-  u8 ret = 0;
-  while (i--) {
-
-    if (unlikely(*current)) discover_word(&ret, current, virgin);
-
-    current++;
-    virgin++;
-
-  }
-
-  if (unlikely(ret) && likely(virgin_map == afl->virgin_bits))
-    afl->bitmap_changed = 1;
-
-  return ret;
+  /* Short-circuit: no feedback. Always report no new bits. */
+  (void)afl;
+  (void)virgin_map;
+  return 0;
 
 }
 
