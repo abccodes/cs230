@@ -1,0 +1,38 @@
+# ==============================
+#   BASELINE FUZZING INSTRUCTIONS
+# ==============================
+
+# 1. Build target program
+export PATH=/workspace/AFLplusplus:$PATH
+afl-clang-fast -g -O2 -o simpleparse simpleparse.c
+
+# 2. Create seeds folder and initial input
+mkdir -p seeds
+echo "hello" > seeds/seed1
+
+# 3. Run baseline fuzzing
+mkdir -p out_baseline
+afl-fuzz -i seeds -o out_baseline -- ./simpleparse @@
+
+# (Press Ctrl+C once to stop after it finds a crash)
+
+# 4. View performance and coverage metrics
+cat out_baseline/default/fuzzer_stats | grep -E "execs_per_sec|bitmap_cvg|unique_crashes|paths_total|last_crash"
+
+# 5. List crash files
+ls -l out_baseline/default/crashes
+
+# 6. Reproduce the crash manually
+./simpleparse out_baseline/default/crashes/id:000000*
+
+# 7. Optional: Inspect coverage map
+/workspace/AFLplusplus/afl-showmap -o /tmp/map -- ./simpleparse seeds/seed1
+cat /tmp/map | wc -l
+
+# ==============================
+#   NOTES
+# ==============================
+# - This run uses full AFL LLVM instrumentation (baseline).
+# - Record 'execs_per_sec' and 'bitmap_cvg' for later comparison.
+# - The intentional crash ("BAD") should be detected quickly.
+# - Next step: test lightweight instrumentation version after modifying AFL’s LLVM pass.
