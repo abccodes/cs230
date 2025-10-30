@@ -1,6 +1,6 @@
 # 🧪 CS230 Fuzzing Project — AFL++
 
-This project explores coverage-guided fuzzing using AFL++ inside a reproducible Docker environment.  
+This project explores coverage-guided fuzzing using AFL++ inside a reproducible Docker environment.
 Everything you need to build, instrument, and run fuzzing experiments is containerized — no system setup required.
 
 ---
@@ -20,7 +20,7 @@ git clone https://github.com/abccodes/cs230.git
 cd cs230
 
 ### 2️⃣ Build the Docker image
-Builds the AFL++ environment defined in Dockerfile.
+Builds the AFL++ environment defined in Dockerfile in root folder. This tags the built container as `cs230/afl-env`, which we reference in the following steps to run the container. The working directory is root.
 
 docker build -t cs230/afl-env .
 
@@ -41,7 +41,7 @@ docker rm -f aflplay
 
 ## 🧰 Inside the Container
 
-You’ll now be inside a full AFL++ environment.  
+You’ll now be inside a full AFL++ environment.
 Basic tools and packages are already installed: clang, make, python3, git, vim, and afl++.
 
 To confirm:
