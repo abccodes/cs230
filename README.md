@@ -1,75 +1,22 @@
-# 🧪 CS230 Fuzzing Project — AFL++
-
-This project explores coverage-guided fuzzing using AFL++ inside a reproducible Docker environment.  
-Everything you need to build, instrument, and run fuzzing experiments is containerized — no system setup required.
-
----
-
-## 📦 Prerequisites
+##### Setup
 
 - Docker installed (https://www.docker.com/products/docker-desktop)
 - Git installed
-- (Optional) Docker Compose for one-command startup
 
----
+##### Docker
 
-## 🚀 Quick Start
+cd cs230/AFLplusplus
+docker run -ti -v $(pwd):/targets aflplusplus/aflplusplus:latest
 
-### 1️⃣ Clone the repository
-git clone https://github.com/abccodes/cs230.git
-cd cs230
+##### Build and Run
+make clean
+make
+make install
 
-### 2️⃣ Build the Docker image
-Builds the AFL++ environment defined in Dockerfile.
+cd /targets
 
-docker build -t cs230/afl-env .
+###### Compile with AFL++ for LLVM-IR (PCGUARD)
+afl-clang-fast program.c -o program
 
-### 3️⃣ Run the container
-Starts an interactive Ubuntu 24.04 shell with your repo mounted at /workspace.
-
-docker run -it --name aflplay \
-  --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
-  --ulimit core=0 \
-  -v "$PWD:/workspace" \
-  -w /workspace \
-  cs230/afl-env bash
-
-💡 If you see “name already in use” error:
-docker rm -f aflplay
-
----
-
-## 🧰 Inside the Container
-
-You’ll now be inside a full AFL++ environment.  
-Basic tools and packages are already installed: clang, make, python3, git, vim, and afl++.
-
-To confirm:
-afl-fuzz --version
-
----
-
-## 🧩 Using Docker Compose (optional)
-
-If you prefer a one-liner startup, use:
-
-docker compose run --rm afl
-
----
-
-## Rebuilding or Cleaning Up
-
-Stop and remove the running container:
-docker stop aflplay
-docker rm aflplay
-
-Rebuild the image if you change the Dockerfile:
-docker build -t cs230/afl-env .
-
-List all containers:
-docker ps -a
-
-Remove unused containers:
-docker rm <container_id>
-
----
+###### Run program
+./program
