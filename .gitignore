@@ -1,1 +1,63 @@
+# Compiled binaries and executables
+*.o
+*.so
+*.a
+*.out
+test
+test_*
+!test_*.c
+complex_lightweight
+complex_lightweight_proper
+complex_original
+complex_test
+analyze_*
+!analyze_*.c
+simpleparse
+t_ctx
+t_ng4
+t_pcguard
 
+# AFL++ fuzzing outputs
+out/
+out_*/
+*.log
+fuzz_bitmap
+fuzzer_stats
+fuzzer_setup
+plot_data
+.state/
+
+# Test inputs/outputs
+in/
+test_input.txt
+test_inputs/
+
+# Build artifacts
+*.dwo
+*.stackdump
+*.8
+*.dSYM/
+
+# AFL++ specific
+AFLplusplus/.test*
+AFLplusplus/afl-*
+!AFLplusplus/afl-*.c
+AFLplusplus/*.so
+AFLplusplus/test-instr
+
+# Magma (if you don't need it)
+magma/
+
+# Docker
+Dockerfile.local
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
