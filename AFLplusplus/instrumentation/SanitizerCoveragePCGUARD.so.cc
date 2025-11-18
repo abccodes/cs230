@@ -781,7 +781,14 @@ static bool IsInterestingCmp(ICmpInst *CMP, const DominatorTree *DT,
 
 void ModuleSanitizerCoverageAFL::instrumentFunction(
     Function &F, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
-
+  
+  // Debug message
+  FILE *debug_file = fopen("/tmp/afl_debug.txt", "a");
+  if (debug_file) {
+    fprintf(debug_file, "[DEBUG] Instrumenting function: %s\n", F.getName().str().c_str());
+    fclose(debug_file);
+  }
+  
   if (F.empty()) return;
   if (!isInInstrumentList(&F, FMNAME)) return;
   // if (F.getName().find(".module_ctor") != std::string::npos)
@@ -817,47 +824,63 @@ void ModuleSanitizerCoverageAFL::instrumentFunction(
   SmallVector<BasicBlock *, 16> BlocksToInstrument;
   SmallVector<Instruction *, 8> CmpTraceTargets;
   SmallVector<Instruction *, 8> SwitchTraceTargets;
-
   const DominatorTree     *DT = DTCallback(F);
   const PostDominatorTree *PDT = PDTCallback(F);
   bool                     IsLeafFunc = true;
-
   for (auto &BB : F) {
+    // OLD CODE: Original coverage selection
+    // if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
+    //   BlocksToInstrument.push_back(&BB);
 
-    if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
+    // NEW CODE: Your lightweight coverage selection
+    bool should_instrument = false;
+    
+    // Strategy 1: Always instrument function entry
+    if (&BB == &F.getEntryBlock()) {
+      should_instrument = true;
+    }
+    
+    // // Strategy 2: Instrument branches (blocks with multiple successors)
+    // if (!should_instrument && BB.getTerminator()) {
+    //   unsigned num_successors = BB.getTerminator()->getNumSuccessors();
+    //   if (num_successors > 1) {
+    //     should_instrument = true;
+    //   }
+    // }
+    
+    // Add to instrumentation list if selected
+    if (should_instrument) {
+      fprintf(stderr, "[LIGHTWEIGHT] Instrumenting block in %s (entry=%d, branches=%d)\n", 
+              F.getName().str().c_str(), 
+              (&BB == &F.getEntryBlock()), 
+              (BB.getTerminator() && BB.getTerminator()->getNumSuccessors() > 1));
       BlocksToInstrument.push_back(&BB);
+    }
+
+    if (should_instrument) {
+      BlocksToInstrument.push_back(&BB);
+    }
+
     /*
         for (auto &Inst : BB) {
-
           if (Options.TraceCmp) {
-
             if (ICmpInst *CMP = dyn_cast<ICmpInst>(&Inst))
               if (IsInterestingCmp(CMP, DT, Options))
                 CmpTraceTargets.push_back(&Inst);
             if (isa<SwitchInst>(&Inst))
               SwitchTraceTargets.push_back(&Inst);
-
           }
-
         }
-
     */
-
   }
-
   if (debug) {
-
     fprintf(stderr, "SanitizerCoveragePCGUARD: instrumenting %s in %s\n",
             F.getName().str().c_str(), F.getParent()->getName().str().c_str());
-
   }
-
   InjectCoverage(F, BlocksToInstrument, IsLeafFunc);
   // InjectTraceForCmp(F, CmpTraceTargets);
   // InjectTraceForSwitch(F, SwitchTraceTargets);
-
   if (dump_cc) { calcCyclomaticComplexity(&F); }
-
 }
 
 GlobalVariable *ModuleSanitizerCoverageAFL::CreateFunctionLocalArrayInSection(
@@ -1883,5 +1906,4 @@ std::string ModuleSanitizerCoverageAFL::getSectionEnd(
   return "__stop___" + Section;
 
 }
-
 
