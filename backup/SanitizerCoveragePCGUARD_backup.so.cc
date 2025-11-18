@@ -1884,4 +1884,3 @@ std::string ModuleSanitizerCoverageAFL::getSectionEnd(
 
 }
 
-
