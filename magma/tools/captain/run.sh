@@ -20,7 +20,15 @@ if [ -z $WORKDIR ] || [ -z $REPEAT ]; then
 fi
 MAGMA=${MAGMA:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/../../" >/dev/null 2>&1 \
     && pwd)"}
+
+# This is the project root / root of the git directory
+PROJECT_ROOT=${PROJECT_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../" >/dev/null 2>&1 \
+    && pwd)"}
+
 export MAGMA
+export PROJECT_ROOT
+echo "MAGMA="$MAGMA
+echo "PROJECT_ROOT="$PROJECT_ROOT
 source "$MAGMA/tools/captain/common.sh"
 
 if [ -z "$WORKER_POOL" ]; then

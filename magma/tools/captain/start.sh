@@ -52,20 +52,20 @@ if [ ! -z "$SHARED" ]; then
 fi
 
 if [ -t 1 ]; then
-    docker run -it $flag_volume \
-        --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
-        --env=PROGRAM="$PROGRAM" --env=ARGS="$ARGS" \
-        --env=FUZZARGS="$FUZZARGS" --env=POLL="$POLL" --env=TIMEOUT="$TIMEOUT" \
-        $flag_aff $flag_ep "$IMG_NAME"
+    CMD="docker run -it $flag_volume \
+        --cap-add=SYS_PTRACE --env=PROGRAM=\"$PROGRAM\" --env=ARGS=\"$ARGS\" \
+        --env=FUZZARGS=\"$FUZZARGS\" --env=POLL=\"$POLL\" --env=TIMEOUT=\"$TIMEOUT\" \
+        $flag_aff $flag_ep \"$IMG_NAME\""
+    echo "Running command: $CMD"
+    eval $CMD
 else
-    container_id=$(
-    docker run -dt $flag_volume \
-        --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
-        --env=PROGRAM="$PROGRAM" --env=ARGS="$ARGS" \
-        --env=FUZZARGS="$FUZZARGS" --env=POLL="$POLL" --env=TIMEOUT="$TIMEOUT" \
+    CMD="docker run -dt $flag_volume \
+        --cap-add=SYS_PTRACE --env=PROGRAM=\"$PROGRAM\" --env=ARGS=\"$ARGS\" \
+        --env=FUZZARGS=\"$FUZZARGS\" --env=POLL=\"$POLL\" --env=TIMEOUT=\"$TIMEOUT\" \
         --network=none \
-        $flag_aff $flag_ep "$IMG_NAME"
-    )
+        $flag_aff $flag_ep \"$IMG_NAME\""
+    echo "Running command: $CMD"
+    container_id=$(eval $CMD)
     container_id=$(cut -c-12 <<< $container_id)
     echo_time "Container for $FUZZER/$TARGET/$PROGRAM started in $container_id"
     docker logs -f "$container_id" &

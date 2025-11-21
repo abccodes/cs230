@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM ubuntu:24.04
 
 # TODO remove sudo for user "magma" to avoid unwanted priv escalation from
 # other attack vectors.
@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y sudo
 ## Magma directory hierarchy
 # magma_root is relative to the docker-build's working directory
 # The Docker image must be built in the root of the magma directory
-ARG magma_root=./
+ARG magma_root=./magma/
 
 ## Path variables inside the container
 ENV MAGMA_R /magma
@@ -23,11 +23,13 @@ ENV AS /usr/bin/as
 ENV NM /usr/bin/nm
 ENV RANLIB /usr/bin/ranlib
 
-ARG USER_ID=1000
-ARG GROUP_ID=1000
+# 1000 is already taken, so we change to 1001
+ARG USER_ID_=1001
+ARG GROUP_ID_=1001
+RUN echo $USER_ID_ $GROUP_ID_
 RUN mkdir -p /home && \
-	groupadd -g ${GROUP_ID} magma && \
-	useradd -l -u ${USER_ID} -K UMASK=0000 -d /home -g magma magma && \
+	groupadd -g ${GROUP_ID_} magma && \
+	useradd -l -u ${USER_ID_} -K UMASK=0000 -d /home -g magma magma && \
 	chown magma:magma /home
 RUN	echo "magma:amgam" | chpasswd && usermod -a -G sudo magma
 
@@ -40,6 +42,11 @@ ENV MAGMA 	${MAGMA_R}/${magma_path}
 USER root:root
 RUN mkdir -p ${MAGMA} && chown magma:magma ${MAGMA}
 COPY --chown=magma:magma ${magma_root}/${magma_path} ${MAGMA}/
+
+# Copy over custom AFL++ codebase!
+RUN mkdir -p ${MAGMA}/../AFLplusplus && chown magma:magma ${MAGMA}/../AFLplusplus
+COPY --chown=magma:magma ${magma_root}/${magma_path}/../../AFLplusplus/ ${MAGMA}/../AFLplusplus/
+
 RUN ${MAGMA}/preinstall.sh
 USER magma:magma
 RUN ${MAGMA}/prebuild.sh
@@ -51,10 +58,10 @@ USER root:root
 RUN mkdir -p ${FUZZER} && chown magma:magma ${FUZZER}
 COPY --chown=magma:magma ${magma_root}/${fuzzer_path} ${FUZZER}/
 RUN ${FUZZER}/preinstall.sh
+RUN ${FUZZER}/fetch.sh && ${FUZZER}/build.sh
 USER magma:magma
-RUN ${FUZZER}/fetch.sh
-RUN ${FUZZER}/build.sh
 
+# If permission error, try adding USER root:root and switch back to magma at the end
 ARG target_name
 ARG target_path=targets/${target_name}
 ENV TARGET 	${MAGMA_R}/${target_path}
@@ -63,8 +70,7 @@ RUN mkdir -p ${TARGET} && chown magma:magma ${TARGET}
 COPY --chown=magma:magma ${magma_root}/${target_path} ${TARGET}/
 RUN ${TARGET}/preinstall.sh
 USER magma:magma
-RUN ${TARGET}/fetch.sh
-RUN ${MAGMA}/apply_patches.sh
+RUN ${TARGET}/fetch.sh && ${MAGMA}/apply_patches.sh
 
 ## Configuration parameters
 ARG isan
@@ -83,6 +89,8 @@ ENV CXXFLAGS ${BUILD_FLAGS}
 ENV LIBS -l:magma.o -lrt
 ENV LDFLAGS -L"${OUT}" -g
 
+USER root:root
 RUN ${FUZZER}/instrument.sh
+USER magma:magma
 
 ENTRYPOINT "${MAGMA}/run.sh"

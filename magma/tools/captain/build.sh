@@ -20,6 +20,10 @@ MAGMA=${MAGMA:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/../../" >/dev/null 2>&1 \
     && pwd)"}
 source "$MAGMA/tools/captain/common.sh"
 
+# This is the project root / root of the git directory
+PROJECT_ROOT=${PROJECT_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../" >/dev/null 2>&1 \
+    && pwd)"}
+
 CANARY_MODE=${CANARY_MODE:-1}
 
 case $CANARY_MODE in
@@ -48,7 +52,7 @@ docker build -t "$IMG_NAME" \
     --build-arg USER_ID=$(id -u $USER) \
     --build-arg GROUP_ID=$(id -g $USER) \
     $mode_flag $isan_flag $harden_flag \
-    -f "$MAGMA/docker/Dockerfile" "$MAGMA"
+    -f "$MAGMA/docker/Dockerfile" "$PROJECT_ROOT"
 set +x
 
 echo "$IMG_NAME"
