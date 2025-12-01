@@ -1018,6 +1018,8 @@ int main(int argc, char **argv_orig, char **envp) {
           FATAL("Invalid -F value (must be 0..100)");
         }
         afl->feedback_use_pct = (u32)p;
+        afl->using_feedback_A = true;
+        // TODO
         break;
       }
 
@@ -1641,7 +1643,7 @@ int main(int argc, char **argv_orig, char **envp) {
           ? SIGKILL
           : SIGTERM);
 
-  setup_signal_handlers();
+  setup_signal_handlers(&afl);
   check_asan_opts(afl);
 
   afl->power_name = power_names[afl->schedule];

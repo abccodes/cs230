@@ -675,7 +675,7 @@ static void set_up_environment(char **argv) {
 
 /* Setup signal handlers, duh. */
 
-static void setup_signal_handlers(void) {
+static void setup_signal_handlers(afl_state_t *afl) {
 
   struct sigaction sa;
 
@@ -966,7 +966,7 @@ int main(int argc, char **argv_orig, char **envp) {
   shm.cmplog_mode = 0;
 
   atexit(at_exit_handler);
-  setup_signal_handlers();
+  setup_signal_handlers(NULL);
 
   set_up_environment(argv);
 

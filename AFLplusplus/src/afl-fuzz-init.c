@@ -3368,11 +3368,39 @@ void check_if_tty(afl_state_t *afl) {
 
 }
 
+
+// TODO:
+// This doesn't work because signal handlers can't accept arguments
+// Therefore
+// - reset the function header to previous
+// - either set `afl` globally available, or changes the feedback_use_pct and using_feedback_A variables globally
+void switch_to_feedbackA(afl_state_t *afl) {
+  if (afl->using_feedback_A) {
+    return;
+  } else {
+    u32 tmp = afl->feedback_use_pct;
+    afl->feedback_use_pct = afl->feedback_use_pctB;
+    afl->feedback_use_pctB = tmp;
+    afl->using_feedback_A = true;
+  }
+}
+
+void switch_to_feedbackB(afl_state_t *afl) {
+  if (!afl->using_feedback_A) {
+    return;
+  } else {
+    u32 tmp = afl->feedback_use_pct;
+    afl->feedback_use_pct = afl->feedback_use_pctB;
+    afl->feedback_use_pctB = tmp;
+    afl->using_feedback_A = true;
+  }
+}
+
 /* Set up signal handlers. More complicated that needs to be, because libc on
    Solaris doesn't resume interrupted reads(), sets SA_RESETHAND when you call
    siginterrupt(), and does other stupid things. */
-
-void setup_signal_handlers(void) {
+// TODO change the function header...
+void setup_signal_handlers(afl_state_t *afl) {
 
   struct sigaction sa;
 
@@ -3399,8 +3427,14 @@ void setup_signal_handlers(void) {
 
   /* SIGUSR1: skip entry */
 
-  sa.sa_handler = handle_skipreq;
-  sigaction(SIGUSR1, &sa, NULL);
+  // sa.sa_handler = handle_skipreq;
+  // sigaction(SIGUSR1, &sa, NULL);
+  if (afl != NULL) {
+    a = switch_to_feedbackA
+    b = switch_to_feedbackB
+    sigaction(SIGUSR1, &a, NULL);
+    sigaction(SIGUSR2, &a, NULL)
+  }
 
   /* Things we don't care about. */
 

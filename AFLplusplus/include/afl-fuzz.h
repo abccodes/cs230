@@ -901,6 +901,8 @@ typedef struct afl_state {
 
   /* New fields for probabilistic feedback disabling */
   u32 feedback_use_pct;          /* 0..100: % of seeds using feedback */
+  u32 feedback_use_pctB;
+  bool using_feedback_A; // true iff feedback_use_pct is true
   u8  feedback_off_for_cur_seed; /* 1 if current seed should skip feedback */
   u64 feedback_off_count;       /* Total number of seeds run without feedback */
 
@@ -1337,7 +1339,7 @@ void   read_foreign_testcases(afl_state_t *, int);
 void   write_crash_readme(afl_state_t *afl);
 u8     check_if_text_buf(u8 *buf, u32 len);
 #ifndef AFL_SHOWMAP
-void setup_signal_handlers(void);
+void setup_signal_handlers(afl_state_t *afl);
 #endif
 char *get_fuzzing_state(afl_state_t *afl);
 
