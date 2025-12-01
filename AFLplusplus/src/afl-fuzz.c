@@ -486,6 +486,25 @@ static void usage(u8 *argv0, int more_help) {
 }
 
 #ifndef AFL_LIB
+/* Helper: set feedback_off_for_cur_seed consistently after selecting queue_cur */
+static inline void set_feedback_for_current_seed(afl_state_t *afl) {
+  if (!afl || !afl->queue_cur) return;
+  if (afl->feedback_use_pct >= 100) {
+    afl->feedback_off_for_cur_seed = 0;
+  } else if (afl->feedback_use_pct <= 0) {
+    afl->feedback_off_for_cur_seed = 1;
+  } else {
+    u32 r = rand_below(afl, 100);
+    afl->feedback_off_for_cur_seed = (r >= afl->feedback_use_pct);
+  }
+  if (afl->feedback_off_for_cur_seed) {
+    afl->feedback_off_count++;
+    if (getenv("AFL_DEBUG_FEEDBACK")) {
+      SAYF(cYEL "[FDBG]" cRST " feedback disabled for seed id=%u\n",
+           afl->queue_cur ? afl->queue_cur->id : 0);
+    }
+  }
+}
 
 static int stricmp(char const *a, char const *b) {
 
@@ -3278,22 +3297,7 @@ int main(int argc, char **argv_orig, char **envp) {
         if (afl->current_entry >= afl->queued_items) { afl->current_entry = 0; }
 
         afl->queue_cur = afl->queue_buf[afl->current_entry];
-        /* Decide whether this seed uses coverage feedback or not */
-        if (afl->feedback_use_pct >= 100) {
-          afl->feedback_off_for_cur_seed = 0;
-        } else if (afl->feedback_use_pct <= 0) {
-          afl->feedback_off_for_cur_seed = 1;
-        } else {
-          u32 r = rand_below(afl, 100);
-          afl->feedback_off_for_cur_seed = (r >= afl->feedback_use_pct);
-        }
-        if (afl->feedback_off_for_cur_seed) {
-          afl->feedback_off_count++;
-          if (getenv("AFL_DEBUG_FEEDBACK")) {
-            SAYF(cYEL "[FDBG]" cRST " feedback disabled for seed id=%u\n",
-                 afl->queue_cur ? afl->queue_cur->id : 0);
-          }
-        }
+        set_feedback_for_current_seed(afl);
 
         if (unlikely(seek_to)) {
 
@@ -3306,21 +3310,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
           afl->current_entry = seek_to;
           afl->queue_cur = afl->queue_buf[seek_to];
-          if (afl->feedback_use_pct >= 100) {
-            afl->feedback_off_for_cur_seed = 0;
-          } else if (afl->feedback_use_pct <= 0) {
-            afl->feedback_off_for_cur_seed = 1;
-          } else {
-            u32 r = rand_below(afl, 100);
-            afl->feedback_off_for_cur_seed = (r >= afl->feedback_use_pct);
-          }
-          if (afl->feedback_off_for_cur_seed) {
-            afl->feedback_off_count++;
-            if (getenv("AFL_DEBUG_FEEDBACK")) {
-              SAYF(cYEL "[FDBG]" cRST " feedback disabled for seed id=%u\n",
-                   afl->queue_cur ? afl->queue_cur->id : 0);
-            }
-          }
+          set_feedback_for_current_seed(afl);
           seek_to = 0;
 
         }
@@ -3487,21 +3477,7 @@ int main(int argc, char **argv_orig, char **envp) {
           */
 
           afl->queue_cur = afl->queue_buf[afl->current_entry];
-            if (afl->feedback_use_pct >= 100) {
-              afl->feedback_off_for_cur_seed = 0;
-            } else if (afl->feedback_use_pct <= 0) {
-              afl->feedback_off_for_cur_seed = 1;
-            } else {
-              u32 r = rand_below(afl, 100);
-              afl->feedback_off_for_cur_seed = (r >= afl->feedback_use_pct);
-            }
-            if (afl->feedback_off_for_cur_seed) {
-              afl->feedback_off_count++;
-              if (getenv("AFL_DEBUG_FEEDBACK")) {
-                SAYF(cYEL "[FDBG]" cRST " feedback disabled for seed id=%u\n",
-                     afl->queue_cur ? afl->queue_cur->id : 0);
-              }
-            }
+          set_feedback_for_current_seed(afl);
 
         } else {
 
@@ -3522,6 +3498,7 @@ int main(int argc, char **argv_orig, char **envp) {
           } while (unlikely(afl->current_entry >= afl->queued_items));
 
           afl->queue_cur = afl->queue_buf[afl->current_entry];
+          set_feedback_for_current_seed(afl);
 
         }
 
