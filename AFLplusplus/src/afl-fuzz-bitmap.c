@@ -533,6 +533,12 @@ u8 __attribute__((hot)) save_if_interesting(afl_state_t *afl, void *mem,
 
   if (unlikely(len == 0)) { return 0; }
 
+  /* If we disabled feedback for this seed and this is a normal exec
+     without crash or timeout, skip coverage-dependent processing. */
+  if (unlikely(afl->feedback_off_for_cur_seed) && likely(fault == FSRV_RUN_OK)) {
+    return 0;
+  }
+
   if (unlikely(fault == FSRV_RUN_TMOUT && afl->afl_env.afl_ignore_timeouts)) {
 
     if (unlikely(afl->schedule >= FAST && afl->schedule <= RARE)) {

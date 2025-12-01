@@ -899,6 +899,11 @@ typedef struct afl_state {
   dynamic_shared_access_t
       *ijon_shared_access;         /* IJON shared access for dynamic offset */
 
+  /* New fields for probabilistic feedback disabling */
+  u32 feedback_use_pct;          /* 0..100: % of seeds using feedback */
+  u8  feedback_off_for_cur_seed; /* 1 if current seed should skip feedback */
+  u64 feedback_off_count;       /* Total number of seeds run without feedback */
+
 } afl_state_t;
 
 struct custom_mutator {
