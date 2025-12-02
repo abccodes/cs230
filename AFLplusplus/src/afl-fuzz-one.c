@@ -546,6 +546,15 @@ u8 fuzz_one_original(afl_state_t *afl) {
 
   }
 
+  // If in blackbox mode, skip all deterministic stages and go straight to havoc.
+  if (afl->in_blackbox_mode) {
+    // We also need to set up some variables that havoc_stage expects.
+    temp_len = len;
+    orig_hit_cnt = afl->queued_items + afl->saved_crashes;
+    havoc_queued = afl->queued_items;
+    goto havoc_stage;
+  }
+
   if (unlikely(afl->shm.cmplog_mode &&
                afl->queue_cur->colorized < afl->cmplog_lvl &&
                (u32)len <= afl->cmplog_max_filesize)) {

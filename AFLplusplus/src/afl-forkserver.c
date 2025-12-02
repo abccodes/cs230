@@ -294,6 +294,7 @@ void afl_fsrv_init(afl_forkserver_t *fsrv) {
   fsrv->out_file = NULL;
   fsrv->child_kill_signal = SIGKILL;
   fsrv->max_length = MAX_FILE;
+  fsrv->in_blackbox_mode = 0;
 
   if (getenv("AFL_PRELOAD_DISCRIMINATE_FORKSERVER_PARENT") != NULL) {
 
@@ -2041,7 +2042,9 @@ fsrv_run_result_t __attribute__((hot)) afl_fsrv_run_target(
 
   /* If the binary is not instrumented, we don't care about the coverage. Make
    * it a bit faster */
-  if (!fsrv->san_but_not_instrumented) {
+  /* Also make this faster if in black box mode
+   */
+  if (!fsrv->san_but_not_instrumented && likely(!fsrv->in_blackbox_mode)) {
 
 #ifdef __linux__
     if (likely(!fsrv->nyx_mode)) {

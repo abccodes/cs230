@@ -580,6 +580,10 @@ u8 __attribute__((hot)) save_if_interesting(afl_state_t *afl, void *mem,
   /* Only "normal" inputs seem interested to us */
   if (likely(fault == afl->crash_mode)) {
 
+    // If in blackbox mode, we are only interested in crashes, not new coverage.
+    // Skip all coverage analysis for normal runs.
+    if (afl->in_blackbox_mode) { return 0; }
+
     if (unlikely(afl->san_binary_length) &&
         likely(afl->san_abstraction == SIMPLIFY_TRACE)) {
 

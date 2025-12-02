@@ -1860,6 +1860,19 @@ int main(int argc, char **argv_orig, char **envp) {
 
   }
 
+    // Parse AFL_HYBRID_RATIO
+  if (afl->afl_env.afl_hybrid_ratio) {
+    double ratio = atof((char *)afl->afl_env.afl_hybrid_ratio);
+    if (ratio < 0.0 || ratio > 1.0) {
+      FATAL("AFL_HYBRID_RATIO must be a float between 0.0 and 1.0.");
+    }
+    afl->hybrid_ratio = ratio;
+    OKF("Running in hybrid mode with %.0f%% coverage-guided ratio.", ratio * 100);
+  } else {
+    // Default to 1.0 (100% coverage-guided), already set in afl_state_init
+    OKF("AFL_HYBRID_RATIO not set. Defaulting to 100%% coverage-guided fuzzing.");
+  }
+
   if (afl->afl_env.afl_testcache_size) {
 
     afl->q_testcase_max_cache_size =
@@ -3223,7 +3236,25 @@ int main(int argc, char **argv_orig, char **envp) {
 
   while (likely(!afl->stop_soon)) {
 
-    cull_queue(afl);
+    // Hybrid Fuzzing Mode Switch Logic
+    if (!afl->in_blackbox_mode && afl->most_time_key) {
+      u64 elapsed_ms = get_cur_time() - afl->start_time;
+      // afl->most_time is in seconds, convert to milliseconds
+      u64 threshold_ms = afl->most_time * 1000ULL * afl->hybrid_ratio;
+
+      if (elapsed_ms >= threshold_ms) {
+        afl->in_blackbox_mode = 1;
+        afl->fsrv.in_blackbox_mode = 1;
+        WARNF("Switching to blackbox fuzzing mode after %.0f%% of campaign time.", afl->hybrid_ratio * 100);
+        // Optional: Perform any cleanup or re-initialization needed for blackbox mode
+        // For example, recalculate scores if the scoring logic changes, or disable some expensive UI updates
+        // Here, we just log the switch for now.
+      }
+    }
+
+    if (!afl->in_blackbox_mode) {
+      cull_queue(afl);
+    }
 
     if (unlikely((!afl->old_seed_selection &&
                   runs_in_current_cycle > afl->queued_items) ||
@@ -3438,55 +3469,75 @@ int main(int argc, char **argv_orig, char **envp) {
 
     do {
 
-      if (likely(!afl->old_seed_selection)) {
+      if (afl->in_blackbox_mode) {
+        // Blackbox mode: simple round-robin selection
+        afl->current_blackbox_entry = (afl->current_blackbox_entry + 1) % afl->queued_items;
+        afl->current_entry = afl->current_blackbox_entry;
+        afl->queue_cur = afl->queue_buf[afl->current_entry];
+        
+        // Ensure the selected queue entry is not disabled.
+        // If it is, find the next available one.
+        u32 start_entry = afl->current_blackbox_entry;
+        while (afl->queue_cur->disabled && afl->queued_items > 0) {
+          afl->current_blackbox_entry = (afl->current_blackbox_entry + 1) % afl->queued_items;
+          afl->current_entry = afl->current_blackbox_entry;
+          afl->queue_cur = afl->queue_buf[afl->current_entry];
+          // Prevent infinite loop if all items are disabled.
+          if (afl->current_blackbox_entry == start_entry) break; 
+        }
 
-        if (likely(afl->pending_favored && afl->smallest_favored >= 0)) {
+      } else {
+        // Original coverage-guided selection logic
+        if (likely(!afl->old_seed_selection)) {
 
-          afl->current_entry = afl->smallest_favored;
+          if (likely(afl->pending_favored && afl->smallest_favored >= 0)) {
 
-          /*
+            afl->current_entry = afl->smallest_favored;
 
-                    } else {
+            /*
 
-                      for (s32 iter = afl->queued_items - 1; iter >= 0; --iter)
-             {
+                      } else {
 
-                        if (unlikely(afl->queue_buf[iter]->favored &&
-                                     !afl->queue_buf[iter]->was_fuzzed)) {
+                        for (s32 iter = afl->queued_items - 1; iter >= 0; --iter)
+              {
 
-                          afl->current_entry = iter;
-                          break;
+                          if (unlikely(afl->queue_buf[iter]->favored &&
+                                      !afl->queue_buf[iter]->was_fuzzed)) {
+
+                            afl->current_entry = iter;
+                            break;
+
+                          }
 
                         }
 
-                      }
+            */
 
-          */
+            afl->queue_cur = afl->queue_buf[afl->current_entry];
 
-          afl->queue_cur = afl->queue_buf[afl->current_entry];
+          } else {
 
-        } else {
+            if (unlikely(prev_queued_items < afl->queued_items ||
+                        afl->reinit_table)) {
 
-          if (unlikely(prev_queued_items < afl->queued_items ||
-                       afl->reinit_table)) {
+              // we have new queue entries since the last run, recreate alias
+              // table
+              prev_queued_items = afl->queued_items;
+              create_alias_table(afl);
 
-            // we have new queue entries since the last run, recreate alias
-            // table
-            prev_queued_items = afl->queued_items;
-            create_alias_table(afl);
+            }
+
+            do {
+
+              afl->current_entry = select_next_queue_entry(afl);
+
+            } while (unlikely(afl->current_entry >= afl->queued_items));
+
+            afl->queue_cur = afl->queue_buf[afl->current_entry];
 
           }
 
-          do {
-
-            afl->current_entry = select_next_queue_entry(afl);
-
-          } while (unlikely(afl->current_entry >= afl->queued_items));
-
-          afl->queue_cur = afl->queue_buf[afl->current_entry];
-
         }
-
       }
 
       skipped_fuzz = fuzz_one(afl);

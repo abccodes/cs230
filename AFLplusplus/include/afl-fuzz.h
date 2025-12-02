@@ -474,7 +474,8 @@ typedef struct afl_env_vars {
       *afl_max_det_extras, *afl_statsd_host, *afl_statsd_port,
       *afl_crash_exitcode, *afl_statsd_tags_flavor, *afl_testcache_size,
       *afl_testcache_entries, *afl_child_kill_signal, *afl_fsrv_kill_signal,
-      *afl_target_env, *afl_persistent_record, *afl_exit_on_time;
+      *afl_target_env, *afl_persistent_record, *afl_exit_on_time,
+      *afl_hybrid_ratio;
 
   s32 afl_pizza_mode, afl_ijon_history_limit;
 
@@ -614,8 +615,11 @@ typedef struct afl_state {
       shmem_testcase_mode,              /* If sharedmem testcases are used  */
       expand_havoc,                /* perform expensive havoc after no find */
       cycle_schedules,                  /* cycle power schedules?           */
+      in_blackbox_mode,
       old_seed_selection,               /* use vanilla afl seed selection   */
       reinit_table;                     /* reinit the queue weight table    */
+
+  double hybrid_ratio;                  /* ratio for coverage guided fuzzing */
 
   u8 *virgin_bits,                      /* Regions yet untouched by fuzzing */
       *virgin_tmout,                    /* Bits we haven't seen in tmouts   */
@@ -652,6 +656,7 @@ typedef struct afl_state {
       useless_at_start,                 /* Number of useless starting paths */
       var_byte_count,                   /* Bitmap bytes with var behavior   */
       current_entry,                    /* Current queue entry ID           */
+      current_blackbox_entry,           /* Blackbox mode current queue entry ID */
       havoc_div,                        /* Cycle count divisor for havoc    */
       max_det_extras;                   /* deterministic extra count (dicts)*/
 

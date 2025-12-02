@@ -105,10 +105,13 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   afl->cmplog_lvl = 2;
   afl->min_length = 1;
   afl->max_length = MAX_FILE;
+  afl->hybrid_ratio = 1.0; /* Default to 100% coverage-guided fuzzing */
+  afl->in_blackbox_mode = 0; /* Default to coverage-guided mode */
   afl->switch_fuzz_mode = STRATEGY_SWITCH_TIME * 1000;
   afl->q_testcase_max_cache_size = TESTCASE_CACHE_SIZE * 1048576UL;
   afl->q_testcase_max_cache_entries = 64 * 1024;
   afl->last_scored_idx = -1;
+  afl->current_blackbox_entry = 0; /* Initialize for blackbox round-robin */
 
 #ifdef HAVE_AFFINITY
   afl->cpu_aff = -1;                    /* Selected CPU core                */
@@ -143,6 +146,7 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   afl->fsrv.dev_null_fd = -1;
   afl->fsrv.child_pid = -1;
   afl->fsrv.out_dir_fd = -1;
+  afl->fsrv.in_blackbox_mode = 0;
 
   /* Init SkipDet */
   afl->skipdet_g =
@@ -237,7 +241,12 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
 
             afl->afl_env.afl_exit_on_time =
                 (u8 *)get_afl_env(afl_environment_variables[i]);
-
+          } else if (!strncmp(env, "AFL_HYBRID_RATIO",
+                              
+                              afl_environment_variable_len)) {
+            
+            afl->afl_env.afl_hybrid_ratio = 
+                (u8 *)get_afl_env(afl_environment_variables[i]);
           } else if (!strncmp(env, "AFL_CRASHING_SEEDS_AS_NEW_CRASH",
 
                               afl_environment_variable_len)) {
