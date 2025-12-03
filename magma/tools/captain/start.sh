@@ -55,6 +55,7 @@ if [ -t 1 ]; then
     CMD="docker run -it $flag_volume \
         --cap-add=SYS_PTRACE --env=PROGRAM=\"$PROGRAM\" --env=ARGS=\"$ARGS\" \
         --env=FUZZARGS=\"$FUZZARGS\" --env=POLL=\"$POLL\" --env=TIMEOUT=\"$TIMEOUT\" \
+        --env=AFL_HYBRID_RATIO --env=AFL_FUZZ_SECONDS \ 
         $flag_aff $flag_ep \"$IMG_NAME\""
     echo "Running command: $CMD"
     eval $CMD
@@ -62,6 +63,7 @@ else
     CMD="docker run -dt $flag_volume \
         --cap-add=SYS_PTRACE --env=PROGRAM=\"$PROGRAM\" --env=ARGS=\"$ARGS\" \
         --env=FUZZARGS=\"$FUZZARGS\" --env=POLL=\"$POLL\" --env=TIMEOUT=\"$TIMEOUT\" \
+        --env=AFL_HYBRID_RATIO --env=AFL_FUZZ_SECONDS \
         --network=none \
         $flag_aff $flag_ep \"$IMG_NAME\""
     echo "Running command: $CMD"

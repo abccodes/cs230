@@ -310,7 +310,7 @@ def bug_survival_data(bd):
                     'Metric': metric,
                     'BugID': bug
                 })
-                group = group.append(new_row, ignore_index=True)
+                group = pd.concat([group, pd.DataFrame([new_row])], ignore_index=True)
             return group
 
         name = group.name
@@ -329,7 +329,7 @@ def bug_survival_data(bd):
                     'Metric': 'triggered'
                 }),
             ]
-            group = group.append(new_rows, ignore_index=True)
+            group = pd.concat([group, pd.DataFrame([new_row])], ignore_index=True)
 
         group = group.groupby('Fuzzer').apply(fillmissing, name).reset_index(drop=True)
 

@@ -3,7 +3,7 @@ from pandas import DataFrame
 import numpy as np
 import sys
 import json
-from collections import Mapping, Iterable
+from collections.abc import Mapping, Iterable
 
 INDEX_NAMES = ['Fuzzer', 'Target','Program','Campaign','Metric','BugID']
 
