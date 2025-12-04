@@ -14,6 +14,10 @@ set -a
 source "$1"
 set +a
 
+# export the FUZZ_PCT variable
+export FUZZ_PCT
+echo "Exported FUZZ_PCT=$FUZZ_PCT"
+
 if [ -z $WORKDIR ] || [ -z $REPEAT ]; then
     echo '$WORKDIR and $REPEAT must be specified as environment variables.'
     exit 1

@@ -282,9 +282,8 @@ static void usage(u8 *argv0, int more_help) {
       "  -M/-S id      - distributed mode (-M sets -Z and disables trimming)\n"
       "                  see docs/fuzzing_in_depth.md#c-using-multiple-cores\n"
       "                  for effective recommendations for parallel fuzzing.\n"
-      "  -F path       - sync to a foreign fuzzer queue directory (requires "
-      "-M, can\n"
-      "                  be specified up to %u times)\n"
+      "  -F pct        - percentage of seeds that use coverage feedback (0..100)\n"
+      "  -A            - enable adaptive coverage mode (dynamically adjusts coverage)\n"
       "  -z            - skip the enhanced deterministic fuzzing\n"
       "                  (note that the old -d and -D flags are ignored.)\n"
       "  -T text       - text banner to show on the screen\n"
@@ -411,6 +410,7 @@ static void usage(u8 *argv0, int more_help) {
       "AFL_SYNC_TIME: sync time between fuzzing instances (in minutes)\n"
       "AFL_FINAL_SYNC: sync a final time when exiting (will delay the exit!)\n"
       "AFL_NO_CRASH_README: do not create a README in the crashes directory\n"
+      "AFL_FEEDBACK_PCT: percentage of seeds that use coverage feedback (0..100)\n"
       "AFL_TESTCACHE_SIZE: use a cache for testcases, improves performance (in MB)\n"
       "AFL_TMPDIR: directory to use for input file generation (ramdisk recommended)\n"
       "AFL_EARLY_FORKSERVER: force an early forkserver in an afl-clang-fast/\n"
@@ -487,6 +487,55 @@ static void usage(u8 *argv0, int more_help) {
 }
 
 #ifndef AFL_LIB
+/* Helper: set feedback_off_for_cur_seed consistently after selecting queue_cur */
+static inline void set_feedback_for_current_seed(afl_state_t *afl) {
+  if (!afl || !afl->queue_cur) return;
+  if (afl->feedback_use_pct >= 100) {
+    afl->feedback_off_for_cur_seed = 0;
+  } else if (afl->feedback_use_pct <= 0) {
+    afl->feedback_off_for_cur_seed = 1;
+  } else {
+    u32 r = rand_below(afl, 100);
+    afl->feedback_off_for_cur_seed = (r >= afl->feedback_use_pct);
+  }
+  if (afl->feedback_off_for_cur_seed) {
+    afl->feedback_off_count++;
+    if (getenv("AFL_DEBUG_FEEDBACK")) {
+      SAYF(cYEL "[FDBG]" cRST " feedback disabled for seed id=%u\n",
+           afl->queue_cur ? afl->queue_cur->id : 0);
+    }
+  }
+}
+
+/* Helper: Adjust coverage percentage adaptively based on time since last new path */
+static inline void adjust_adaptive_coverage(afl_state_t *afl) {
+  if (!afl || !afl->adaptive_mode) return;
+
+  u64 current_time = get_cur_time();
+  afl->time_since_new_path = current_time - afl->last_new_path_time;
+
+  /* Adaptive thresholds (in milliseconds):
+   *   < 5 min (300,000 ms) since new path: 100% coverage
+   *   5-30 min: 50% coverage
+   *   > 30 min (1,800,000 ms): 25% coverage
+   */
+
+  if (afl->time_since_new_path < 300000) {
+    afl->adaptive_cov_pct = 100;
+  } else if (afl->time_since_new_path < 1800000) {
+    afl->adaptive_cov_pct = 50;
+  } else {
+    afl->adaptive_cov_pct = 25;
+  }
+
+  /* Update the feedback_use_pct with the adaptive percentage */
+  afl->feedback_use_pct = afl->adaptive_cov_pct;
+
+  if (getenv("AFL_DEBUG_ADAPTIVE")) {
+    SAYF(cCYA "[ADAPT]" cRST " Time since new path: %llu ms, coverage: %u%%\n",
+         afl->time_since_new_path, afl->adaptive_cov_pct);
+  }
+}
 
 static int stricmp(char const *a, char const *b) {
 
@@ -612,6 +661,9 @@ int main(int argc, char **argv_orig, char **envp) {
 
   afl_state_init(afl, map_size);
   afl->debug = debug;
+  /* Default feedback configuration: use feedback for all seeds */
+  afl->feedback_use_pct = 100;
+  afl->feedback_off_for_cur_seed = 0;
   afl_fsrv_init(&afl->fsrv);
   if (debug) { afl->fsrv.debug = true; }
   read_afl_environment(afl, envp);
@@ -990,37 +1042,24 @@ int main(int argc, char **argv_orig, char **envp) {
         afl->is_secondary_node = 1;
         break;
 
-      case 'F':                                         /* foreign sync dir */
-
-        if (!optarg) { FATAL("Missing path for -F"); }
-        if (!afl->is_main_node) {
-
-          FATAL(
-              "Option -F can only be specified after the -M option for the "
-              "main fuzzer of a fuzzing campaign");
-
+      case 'F': { /* -F <pct> : percentage of seeds that use feedback */
+        if (!optarg) { FATAL("Missing value for -F"); }
+        int p = atoi(optarg);
+        if (p < 0 || p > 100) {
+          FATAL("Invalid -F value (must be 0..100)");
         }
-
-        if (afl->foreign_sync_cnt >= FOREIGN_SYNCS_MAX) {
-
-          FATAL("Maximum %u entried of -F option can be specified",
-                FOREIGN_SYNCS_MAX);
-
-        }
-
-        afl->foreign_syncs[afl->foreign_sync_cnt].dir = optarg;
-        while (afl->foreign_syncs[afl->foreign_sync_cnt]
-                   .dir[strlen(afl->foreign_syncs[afl->foreign_sync_cnt].dir) -
-                        1] == '/') {
-
-          afl->foreign_syncs[afl->foreign_sync_cnt]
-              .dir[strlen(afl->foreign_syncs[afl->foreign_sync_cnt].dir) - 1] =
-              0;
-
-        }
-
-        afl->foreign_sync_cnt++;
+        afl->feedback_use_pct = (u32)p;
         break;
+      }
+
+      case 'A': { /* -A : enable adaptive coverage mode */
+        afl->adaptive_mode = 1;
+        afl->last_new_path_time = get_cur_time();
+        afl->time_since_new_path = 0;
+        afl->adaptive_cov_pct = 100;  /* Start at 100% */
+        ACTF("Adaptive coverage mode enabled");
+        break;
+      }
 
       case 'f':                                              /* target file */
 
@@ -1832,6 +1871,18 @@ int main(int argc, char **argv_orig, char **envp) {
   if (get_afl_env("AFL_EXPAND_HAVOC_NOW")) { afl->expand_havoc = 1; }
 
   if (afl->afl_env.afl_autoresume) { afl->autoresume = 1; }
+
+  /* Optional environment override for feedback percentage */
+  {
+    char *env_p = getenv("AFL_FEEDBACK_PCT");
+    if (env_p) {
+      int p = atoi(env_p);
+      if (p < 0 || p > 100) {
+        FATAL("AFL_FEEDBACK_PCT must be 0..100");
+      }
+      afl->feedback_use_pct = (u32)p;
+    }
+  }
 
   if (afl->afl_env.afl_hang_tmout) {
 
@@ -3286,6 +3337,8 @@ int main(int argc, char **argv_orig, char **envp) {
         if (afl->current_entry >= afl->queued_items) { afl->current_entry = 0; }
 
         afl->queue_cur = afl->queue_buf[afl->current_entry];
+        adjust_adaptive_coverage(afl);
+        set_feedback_for_current_seed(afl);
 
         if (unlikely(seek_to)) {
 
@@ -3298,6 +3351,8 @@ int main(int argc, char **argv_orig, char **envp) {
 
           afl->current_entry = seek_to;
           afl->queue_cur = afl->queue_buf[seek_to];
+          adjust_adaptive_coverage(afl);
+          set_feedback_for_current_seed(afl);
           seek_to = 0;
 
         }
@@ -3464,6 +3519,8 @@ int main(int argc, char **argv_orig, char **envp) {
           */
 
           afl->queue_cur = afl->queue_buf[afl->current_entry];
+          adjust_adaptive_coverage(afl);
+          set_feedback_for_current_seed(afl);
 
         } else {
 
@@ -3484,6 +3541,8 @@ int main(int argc, char **argv_orig, char **envp) {
           } while (unlikely(afl->current_entry >= afl->queued_items));
 
           afl->queue_cur = afl->queue_buf[afl->current_entry];
+          adjust_adaptive_coverage(afl);
+          set_feedback_for_current_seed(afl);
 
         }
 
@@ -3637,6 +3696,11 @@ stop_fuzzing:
     SAYF(CURSOR_SHOW cLRD "\n\n+++ Testing aborted %s +++\n" cRST,
          afl->stop_soon == 2 ? "programmatically" : "by user");
 
+  }
+
+  if (afl->feedback_off_count) {
+    SAYF(cYEL "[FDBG]" cRST " Total seeds run without feedback: %llu\n",
+         (unsigned long long)afl->feedback_off_count);
   }
 
   if (afl->most_time_key == 2) {
