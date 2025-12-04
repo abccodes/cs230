@@ -904,6 +904,12 @@ typedef struct afl_state {
   u8  feedback_off_for_cur_seed; /* 1 if current seed should skip feedback */
   u64 feedback_off_count;       /* Total number of seeds run without feedback */
 
+  /* Adaptive coverage mode fields */
+  u8     adaptive_mode;           /* 1 if adaptive coverage mode enabled */
+  u64    last_new_path_time;      /* Timestamp of last new path discovery (ms) */
+  u64    time_since_new_path;     /* Time elapsed since last new path (ms) */
+  u32    adaptive_cov_pct;        /* Current coverage % in adaptive mode */
+
 } afl_state_t;
 
 struct custom_mutator {
