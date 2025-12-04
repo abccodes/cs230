@@ -283,6 +283,7 @@ static void usage(u8 *argv0, int more_help) {
       "                  see docs/fuzzing_in_depth.md#c-using-multiple-cores\n"
       "                  for effective recommendations for parallel fuzzing.\n"
       "  -F pct        - percentage of seeds that use coverage feedback (0..100)\n"
+      "  -A            - enable adaptive coverage mode (dynamically adjusts coverage)\n"
       "  -z            - skip the enhanced deterministic fuzzing\n"
       "                  (note that the old -d and -D flags are ignored.)\n"
       "  -T text       - text banner to show on the screen\n"
@@ -503,6 +504,36 @@ static inline void set_feedback_for_current_seed(afl_state_t *afl) {
       SAYF(cYEL "[FDBG]" cRST " feedback disabled for seed id=%u\n",
            afl->queue_cur ? afl->queue_cur->id : 0);
     }
+  }
+}
+
+/* Helper: Adjust coverage percentage adaptively based on time since last new path */
+static inline void adjust_adaptive_coverage(afl_state_t *afl) {
+  if (!afl || !afl->adaptive_mode) return;
+
+  u64 current_time = get_cur_time();
+  afl->time_since_new_path = current_time - afl->last_new_path_time;
+
+  /* Adaptive thresholds (in milliseconds):
+   *   < 5 min (300,000 ms) since new path: 100% coverage
+   *   5-30 min: 50% coverage
+   *   > 30 min (1,800,000 ms): 25% coverage
+   */
+
+  if (afl->time_since_new_path < 300000) {
+    afl->adaptive_cov_pct = 100;
+  } else if (afl->time_since_new_path < 1800000) {
+    afl->adaptive_cov_pct = 50;
+  } else {
+    afl->adaptive_cov_pct = 25;
+  }
+
+  /* Update the feedback_use_pct with the adaptive percentage */
+  afl->feedback_use_pct = afl->adaptive_cov_pct;
+
+  if (getenv("AFL_DEBUG_ADAPTIVE")) {
+    SAYF(cCYA "[ADAPT]" cRST " Time since new path: %llu ms, coverage: %u%%\n",
+         afl->time_since_new_path, afl->adaptive_cov_pct);
   }
 }
 
@@ -1018,6 +1049,15 @@ int main(int argc, char **argv_orig, char **envp) {
           FATAL("Invalid -F value (must be 0..100)");
         }
         afl->feedback_use_pct = (u32)p;
+        break;
+      }
+
+      case 'A': { /* -A : enable adaptive coverage mode */
+        afl->adaptive_mode = 1;
+        afl->last_new_path_time = get_cur_time();
+        afl->time_since_new_path = 0;
+        afl->adaptive_cov_pct = 100;  /* Start at 100% */
+        ACTF("Adaptive coverage mode enabled");
         break;
       }
 
@@ -3297,6 +3337,7 @@ int main(int argc, char **argv_orig, char **envp) {
         if (afl->current_entry >= afl->queued_items) { afl->current_entry = 0; }
 
         afl->queue_cur = afl->queue_buf[afl->current_entry];
+        adjust_adaptive_coverage(afl);
         set_feedback_for_current_seed(afl);
 
         if (unlikely(seek_to)) {
@@ -3310,6 +3351,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
           afl->current_entry = seek_to;
           afl->queue_cur = afl->queue_buf[seek_to];
+          adjust_adaptive_coverage(afl);
           set_feedback_for_current_seed(afl);
           seek_to = 0;
 
@@ -3477,6 +3519,7 @@ int main(int argc, char **argv_orig, char **envp) {
           */
 
           afl->queue_cur = afl->queue_buf[afl->current_entry];
+          adjust_adaptive_coverage(afl);
           set_feedback_for_current_seed(afl);
 
         } else {
@@ -3498,6 +3541,7 @@ int main(int argc, char **argv_orig, char **envp) {
           } while (unlikely(afl->current_entry >= afl->queued_items));
 
           afl->queue_cur = afl->queue_buf[afl->current_entry];
+          adjust_adaptive_coverage(afl);
           set_feedback_for_current_seed(afl);
 
         }
