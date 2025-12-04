@@ -749,6 +749,11 @@ u8 __attribute__((hot)) save_if_interesting(afl_state_t *afl, void *mem,
 
     add_to_queue(afl, queue_fn, len, 0);
 
+    /* Update timestamp for adaptive coverage mode */
+    if (unlikely(afl->adaptive_mode)) {
+      afl->last_new_path_time = get_cur_time();
+    }
+
     if (unlikely(afl->fuzz_mode) &&
         likely(afl->switch_fuzz_mode && !afl->non_instrumented_mode)) {
 
