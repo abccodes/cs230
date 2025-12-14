@@ -904,11 +904,15 @@ typedef struct afl_state {
   u8  feedback_off_for_cur_seed; /* 1 if current seed should skip feedback */
   u64 feedback_off_count;       /* Total number of seeds run without feedback */
 
-  /* Adaptive coverage mode fields */
+  /* Adaptive coverage mode fields - Good-Turing estimation */
   u8     adaptive_mode;           /* 1 if adaptive coverage mode enabled */
-  u64    last_new_path_time;      /* Timestamp of last new path discovery (ms) */
-  u64    time_since_new_path;     /* Time elapsed since last new path (ms) */
-  u32    adaptive_cov_pct;        /* Current coverage % in adaptive mode */
+  u32    total_paths;             /* Total unique paths discovered */
+  u32    singleton_paths;         /* Paths triggered exactly once */
+  u64    total_executions;        /* Total executions performed */
+  double good_turing_prob;        /* Estimated probability of new path */
+  double prob_threshold;          /* User-defined probability threshold */
+  u32   *path_hit_counts;         /* Hit count for each path (for singleton tracking) */
+  u32    path_hit_counts_size;    /* Size of path_hit_counts array */
 
 } afl_state_t;
 

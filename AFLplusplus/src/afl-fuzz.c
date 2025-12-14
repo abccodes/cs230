@@ -507,33 +507,46 @@ static inline void set_feedback_for_current_seed(afl_state_t *afl) {
   }
 }
 
-/* Helper: Adjust coverage percentage adaptively based on time since last new path */
+/* Helper: Adjust coverage percentage adaptively using Good-Turing estimation */
 static inline void adjust_adaptive_coverage(afl_state_t *afl) {
   if (!afl || !afl->adaptive_mode) return;
 
-  u64 current_time = get_cur_time();
-  afl->time_since_new_path = current_time - afl->last_new_path_time;
-
-  /* Adaptive thresholds (in milliseconds):
-   *   < 5 min (300,000 ms) since new path: 100% coverage
-   *   5-30 min: 50% coverage
-   *   > 30 min (1,800,000 ms): 25% coverage
+  /* Good-Turing estimation:
+   * P(unseen) ≈ (# singletons) / (total executions)
+   *
+   * The "missing mass" of the coverage map is estimated by the proportion
+   * of paths triggered exactly once (singletons) relative to total tests.
+   * This statistical approach estimates the probability of discovering new
+   * paths based on the frequency distribution of already-discovered paths.
    */
 
-  if (afl->time_since_new_path < 300000) {
-    afl->adaptive_cov_pct = 100;
-  } else if (afl->time_since_new_path < 1800000) {
-    afl->adaptive_cov_pct = 50;
+  if (afl->total_executions > 0) {
+    afl->good_turing_prob = (double)afl->singleton_paths /
+                            (double)afl->total_executions;
   } else {
-    afl->adaptive_cov_pct = 25;
+    afl->good_turing_prob = 1.0;  /* Initially assume high probability */
   }
 
-  /* Update the feedback_use_pct with the adaptive percentage */
-  afl->feedback_use_pct = afl->adaptive_cov_pct;
+  /* Transition logic:
+   * - If probability of finding new path >= threshold: Full coverage (100%)
+   * - If probability drops below threshold: Feedback-agnostic mode (0%)
+   *
+   * This creates a binary switch based on statistical confidence rather than
+   * predetermined time thresholds.
+   */
+
+  if (afl->good_turing_prob >= afl->prob_threshold) {
+    afl->feedback_use_pct = 100;  /* Stay in coverage-guided mode */
+  } else {
+    afl->feedback_use_pct = 0;    /* Switch to feedback-agnostic mode */
+  }
 
   if (getenv("AFL_DEBUG_ADAPTIVE")) {
-    SAYF(cCYA "[ADAPT]" cRST " Time since new path: %llu ms, coverage: %u%%\n",
-         afl->time_since_new_path, afl->adaptive_cov_pct);
+    SAYF(cCYA "[ADAPT]" cRST " Singletons: %u/%u paths, "
+         "Prob: %.6f, Threshold: %.6f, Coverage: %u%%\n",
+         afl->singleton_paths, afl->total_paths,
+         afl->good_turing_prob, afl->prob_threshold,
+         afl->feedback_use_pct);
   }
 }
 
@@ -1052,12 +1065,33 @@ int main(int argc, char **argv_orig, char **envp) {
         break;
       }
 
-      case 'A': { /* -A : enable adaptive coverage mode */
+      case 'A': { /* -A [threshold] : enable Good-Turing adaptive coverage mode */
+        if (optarg && optarg[0] != '-') {
+          /* Parse probability threshold if provided */
+          afl->prob_threshold = atof(optarg);
+          if (afl->prob_threshold <= 0.0 || afl->prob_threshold > 1.0) {
+            FATAL("Probability threshold must be between 0 and 1");
+          }
+        } else {
+          /* Default to 5% probability threshold */
+          afl->prob_threshold = 0.05;
+        }
+
         afl->adaptive_mode = 1;
-        afl->last_new_path_time = get_cur_time();
-        afl->time_since_new_path = 0;
-        afl->adaptive_cov_pct = 100;  /* Start at 100% */
-        ACTF("Adaptive coverage mode enabled");
+        afl->total_paths = 0;
+        afl->singleton_paths = 0;
+        afl->total_executions = 0;
+        afl->good_turing_prob = 1.0;
+
+        /* Allocate path hit counts array (64K bitmap entries) */
+        afl->path_hit_counts_size = 65536;
+        afl->path_hit_counts = calloc(afl->path_hit_counts_size, sizeof(u32));
+        if (!afl->path_hit_counts) {
+          FATAL("Could not allocate path hit counts array");
+        }
+
+        ACTF("Good-Turing adaptive coverage mode enabled (threshold: %.4f)",
+             afl->prob_threshold);
         break;
       }
 
@@ -1269,11 +1303,10 @@ int main(int argc, char **argv_orig, char **envp) {
         FATAL("Nyx mode is only available on linux...");
         break;
   #endif
-      case 'A':                                           /* CoreSight mode */
 
-  #if !defined(__aarch64__) || !defined(__linux__)
-        FATAL("-A option is not supported on this platform");
-  #endif
+  #if defined(__aarch64__) && defined(__linux__)
+      /* CoreSight mode only on ARM/Linux */
+      case 'A':                                           /* CoreSight mode */
 
         if (afl->is_main_node || afl->is_secondary_node) {
 
@@ -1286,6 +1319,7 @@ int main(int argc, char **argv_orig, char **envp) {
         afl->fsrv.cs_mode = 1;
 
         break;
+  #endif  /* ARM CoreSight mode */
 
       case 'O':                                               /* FRIDA mode */
 
@@ -3936,6 +3970,10 @@ stop_fuzzing:
   ck_free(afl->fsrv.out_file);
   ck_free(afl->sync_id);
   if (afl->q_testcase_cache) { ck_free(afl->q_testcase_cache); }
+
+  /* Free adaptive mode path hit counts array */
+  if (afl->path_hit_counts) { free(afl->path_hit_counts); }
+
   afl_state_deinit(afl);
   free(afl);                                                 /* not tracked */
 
