@@ -899,6 +899,21 @@ typedef struct afl_state {
   dynamic_shared_access_t
       *ijon_shared_access;         /* IJON shared access for dynamic offset */
 
+  /* New fields for probabilistic feedback disabling */
+  u32 feedback_use_pct;          /* 0..100: % of seeds using feedback */
+  u8  feedback_off_for_cur_seed; /* 1 if current seed should skip feedback */
+  u64 feedback_off_count;       /* Total number of seeds run without feedback */
+
+  /* Adaptive coverage mode fields - Good-Turing estimation */
+  u8     adaptive_mode;           /* 1 if adaptive coverage mode enabled */
+  u32    total_paths;             /* Total unique paths discovered */
+  u32    singleton_paths;         /* Paths triggered exactly once */
+  u64    total_executions;        /* Total executions performed */
+  double good_turing_prob;        /* Estimated probability of new path */
+  double prob_threshold;          /* User-defined probability threshold */
+  u32   *path_hit_counts;         /* Hit count for each path (for singleton tracking) */
+  u32    path_hit_counts_size;    /* Size of path_hit_counts array */
+
 } afl_state_t;
 
 struct custom_mutator {

@@ -65,6 +65,17 @@ fsrv_run_result_t __attribute__((hot)) fuzz_run_target(afl_state_t      *afl,
 
   fsrv_run_result_t res = afl_fsrv_run_target(fsrv, timeout, &afl->stop_soon);
 
+  /* Increment execution counter for Good-Turing estimation */
+  if (unlikely(afl->adaptive_mode)) {
+    afl->total_executions++;
+  }
+
+  /* Update singleton tracking for Good-Turing (defined in afl-fuzz-bitmap.c) */
+  extern void update_singleton_tracking(afl_state_t *afl);
+  if (unlikely(afl->adaptive_mode)) {
+    update_singleton_tracking(afl);
+  }
+
 #ifdef __AFL_CODE_COVERAGE
   if (unlikely(!fsrv->persistent_trace_bits)) {
 

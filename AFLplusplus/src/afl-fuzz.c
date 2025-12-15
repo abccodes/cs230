@@ -282,9 +282,8 @@ static void usage(u8 *argv0, int more_help) {
       "  -M/-S id      - distributed mode (-M sets -Z and disables trimming)\n"
       "                  see docs/fuzzing_in_depth.md#c-using-multiple-cores\n"
       "                  for effective recommendations for parallel fuzzing.\n"
-      "  -F path       - sync to a foreign fuzzer queue directory (requires "
-      "-M, can\n"
-      "                  be specified up to %u times)\n"
+      "  -F pct        - percentage of seeds that use coverage feedback (0..100)\n"
+      "  -A            - enable adaptive coverage mode (dynamically adjusts coverage)\n"
       "  -z            - skip the enhanced deterministic fuzzing\n"
       "                  (note that the old -d and -D flags are ignored.)\n"
       "  -T text       - text banner to show on the screen\n"
@@ -411,6 +410,7 @@ static void usage(u8 *argv0, int more_help) {
       "AFL_SYNC_TIME: sync time between fuzzing instances (in minutes)\n"
       "AFL_FINAL_SYNC: sync a final time when exiting (will delay the exit!)\n"
       "AFL_NO_CRASH_README: do not create a README in the crashes directory\n"
+      "AFL_FEEDBACK_PCT: percentage of seeds that use coverage feedback (0..100)\n"
       "AFL_TESTCACHE_SIZE: use a cache for testcases, improves performance (in MB)\n"
       "AFL_TMPDIR: directory to use for input file generation (ramdisk recommended)\n"
       "AFL_EARLY_FORKSERVER: force an early forkserver in an afl-clang-fast/\n"
@@ -487,6 +487,68 @@ static void usage(u8 *argv0, int more_help) {
 }
 
 #ifndef AFL_LIB
+/* Helper: set feedback_off_for_cur_seed consistently after selecting queue_cur */
+static inline void set_feedback_for_current_seed(afl_state_t *afl) {
+  if (!afl || !afl->queue_cur) return;
+  if (afl->feedback_use_pct >= 100) {
+    afl->feedback_off_for_cur_seed = 0;
+  } else if (afl->feedback_use_pct <= 0) {
+    afl->feedback_off_for_cur_seed = 1;
+  } else {
+    u32 r = rand_below(afl, 100);
+    afl->feedback_off_for_cur_seed = (r >= afl->feedback_use_pct);
+  }
+  if (afl->feedback_off_for_cur_seed) {
+    afl->feedback_off_count++;
+    if (getenv("AFL_DEBUG_FEEDBACK")) {
+      SAYF(cYEL "[FDBG]" cRST " feedback disabled for seed id=%u\n",
+           afl->queue_cur ? afl->queue_cur->id : 0);
+    }
+  }
+}
+
+/* Helper: Adjust coverage percentage adaptively using Good-Turing estimation */
+static inline void adjust_adaptive_coverage(afl_state_t *afl) {
+  if (!afl || !afl->adaptive_mode) return;
+
+  /* Good-Turing estimation:
+   * P(unseen) ≈ (# singletons) / (total executions)
+   *
+   * The "missing mass" of the coverage map is estimated by the proportion
+   * of paths triggered exactly once (singletons) relative to total tests.
+   * This statistical approach estimates the probability of discovering new
+   * paths based on the frequency distribution of already-discovered paths.
+   */
+
+  if (afl->total_executions > 0) {
+    afl->good_turing_prob = (double)afl->singleton_paths /
+                            (double)afl->total_executions;
+  } else {
+    afl->good_turing_prob = 1.0;  /* Initially assume high probability */
+  }
+
+  /* Transition logic:
+   * - If probability of finding new path >= threshold: Full coverage (100%)
+   * - If probability drops below threshold: Feedback-agnostic mode (0%)
+   *
+   * This creates a binary switch based on statistical confidence rather than
+   * predetermined time thresholds.
+   */
+
+  if (afl->good_turing_prob >= afl->prob_threshold) {
+    afl->feedback_use_pct = 100;  /* Stay in coverage-guided mode */
+  } else {
+    afl->feedback_use_pct = 0;    /* Switch to feedback-agnostic mode */
+  }
+
+  if (getenv("AFL_DEBUG_ADAPTIVE")) {
+    SAYF(cCYA "[ADAPT]" cRST " Singletons: %u/%u paths, "
+         "Prob: %.6f, Threshold: %.6f, Coverage: %u%%\n",
+         afl->singleton_paths, afl->total_paths,
+         afl->good_turing_prob, afl->prob_threshold,
+         afl->feedback_use_pct);
+  }
+}
 
 static int stricmp(char const *a, char const *b) {
 
@@ -612,6 +674,9 @@ int main(int argc, char **argv_orig, char **envp) {
 
   afl_state_init(afl, map_size);
   afl->debug = debug;
+  /* Default feedback configuration: use feedback for all seeds */
+  afl->feedback_use_pct = 100;
+  afl->feedback_off_for_cur_seed = 0;
   afl_fsrv_init(&afl->fsrv);
   if (debug) { afl->fsrv.debug = true; }
   read_afl_environment(afl, envp);
@@ -990,37 +1055,45 @@ int main(int argc, char **argv_orig, char **envp) {
         afl->is_secondary_node = 1;
         break;
 
-      case 'F':                                         /* foreign sync dir */
-
-        if (!optarg) { FATAL("Missing path for -F"); }
-        if (!afl->is_main_node) {
-
-          FATAL(
-              "Option -F can only be specified after the -M option for the "
-              "main fuzzer of a fuzzing campaign");
-
+      case 'F': { /* -F <pct> : percentage of seeds that use feedback */
+        if (!optarg) { FATAL("Missing value for -F"); }
+        int p = atoi(optarg);
+        if (p < 0 || p > 100) {
+          FATAL("Invalid -F value (must be 0..100)");
         }
-
-        if (afl->foreign_sync_cnt >= FOREIGN_SYNCS_MAX) {
-
-          FATAL("Maximum %u entried of -F option can be specified",
-                FOREIGN_SYNCS_MAX);
-
-        }
-
-        afl->foreign_syncs[afl->foreign_sync_cnt].dir = optarg;
-        while (afl->foreign_syncs[afl->foreign_sync_cnt]
-                   .dir[strlen(afl->foreign_syncs[afl->foreign_sync_cnt].dir) -
-                        1] == '/') {
-
-          afl->foreign_syncs[afl->foreign_sync_cnt]
-              .dir[strlen(afl->foreign_syncs[afl->foreign_sync_cnt].dir) - 1] =
-              0;
-
-        }
-
-        afl->foreign_sync_cnt++;
+        afl->feedback_use_pct = (u32)p;
         break;
+      }
+
+      case 'A': { /* -A [threshold] : enable Good-Turing adaptive coverage mode */
+        if (optarg && optarg[0] != '-') {
+          /* Parse probability threshold if provided */
+          afl->prob_threshold = atof(optarg);
+          if (afl->prob_threshold <= 0.0 || afl->prob_threshold > 1.0) {
+            FATAL("Probability threshold must be between 0 and 1");
+          }
+        } else {
+          /* Default to 5% probability threshold */
+          afl->prob_threshold = 0.05;
+        }
+
+        afl->adaptive_mode = 1;
+        afl->total_paths = 0;
+        afl->singleton_paths = 0;
+        afl->total_executions = 0;
+        afl->good_turing_prob = 1.0;
+
+        /* Allocate path hit counts array (64K bitmap entries) */
+        afl->path_hit_counts_size = 65536;
+        afl->path_hit_counts = calloc(afl->path_hit_counts_size, sizeof(u32));
+        if (!afl->path_hit_counts) {
+          FATAL("Could not allocate path hit counts array");
+        }
+
+        ACTF("Good-Turing adaptive coverage mode enabled (threshold: %.4f)",
+             afl->prob_threshold);
+        break;
+      }
 
       case 'f':                                              /* target file */
 
@@ -1230,11 +1303,10 @@ int main(int argc, char **argv_orig, char **envp) {
         FATAL("Nyx mode is only available on linux...");
         break;
   #endif
-      case 'A':                                           /* CoreSight mode */
 
-  #if !defined(__aarch64__) || !defined(__linux__)
-        FATAL("-A option is not supported on this platform");
-  #endif
+  #if defined(__aarch64__) && defined(__linux__)
+      /* CoreSight mode only on ARM/Linux */
+      case 'A':                                           /* CoreSight mode */
 
         if (afl->is_main_node || afl->is_secondary_node) {
 
@@ -1247,6 +1319,7 @@ int main(int argc, char **argv_orig, char **envp) {
         afl->fsrv.cs_mode = 1;
 
         break;
+  #endif  /* ARM CoreSight mode */
 
       case 'O':                                               /* FRIDA mode */
 
@@ -1832,6 +1905,18 @@ int main(int argc, char **argv_orig, char **envp) {
   if (get_afl_env("AFL_EXPAND_HAVOC_NOW")) { afl->expand_havoc = 1; }
 
   if (afl->afl_env.afl_autoresume) { afl->autoresume = 1; }
+
+  /* Optional environment override for feedback percentage */
+  {
+    char *env_p = getenv("AFL_FEEDBACK_PCT");
+    if (env_p) {
+      int p = atoi(env_p);
+      if (p < 0 || p > 100) {
+        FATAL("AFL_FEEDBACK_PCT must be 0..100");
+      }
+      afl->feedback_use_pct = (u32)p;
+    }
+  }
 
   if (afl->afl_env.afl_hang_tmout) {
 
@@ -3286,6 +3371,8 @@ int main(int argc, char **argv_orig, char **envp) {
         if (afl->current_entry >= afl->queued_items) { afl->current_entry = 0; }
 
         afl->queue_cur = afl->queue_buf[afl->current_entry];
+        adjust_adaptive_coverage(afl);
+        set_feedback_for_current_seed(afl);
 
         if (unlikely(seek_to)) {
 
@@ -3298,6 +3385,8 @@ int main(int argc, char **argv_orig, char **envp) {
 
           afl->current_entry = seek_to;
           afl->queue_cur = afl->queue_buf[seek_to];
+          adjust_adaptive_coverage(afl);
+          set_feedback_for_current_seed(afl);
           seek_to = 0;
 
         }
@@ -3464,6 +3553,8 @@ int main(int argc, char **argv_orig, char **envp) {
           */
 
           afl->queue_cur = afl->queue_buf[afl->current_entry];
+          adjust_adaptive_coverage(afl);
+          set_feedback_for_current_seed(afl);
 
         } else {
 
@@ -3484,6 +3575,8 @@ int main(int argc, char **argv_orig, char **envp) {
           } while (unlikely(afl->current_entry >= afl->queued_items));
 
           afl->queue_cur = afl->queue_buf[afl->current_entry];
+          adjust_adaptive_coverage(afl);
+          set_feedback_for_current_seed(afl);
 
         }
 
@@ -3637,6 +3730,11 @@ stop_fuzzing:
     SAYF(CURSOR_SHOW cLRD "\n\n+++ Testing aborted %s +++\n" cRST,
          afl->stop_soon == 2 ? "programmatically" : "by user");
 
+  }
+
+  if (afl->feedback_off_count) {
+    SAYF(cYEL "[FDBG]" cRST " Total seeds run without feedback: %llu\n",
+         (unsigned long long)afl->feedback_off_count);
   }
 
   if (afl->most_time_key == 2) {
@@ -3872,6 +3970,10 @@ stop_fuzzing:
   ck_free(afl->fsrv.out_file);
   ck_free(afl->sync_id);
   if (afl->q_testcase_cache) { ck_free(afl->q_testcase_cache); }
+
+  /* Free adaptive mode path hit counts array */
+  if (afl->path_hit_counts) { free(afl->path_hit_counts); }
+
   afl_state_deinit(afl);
   free(afl);                                                 /* not tracked */
 

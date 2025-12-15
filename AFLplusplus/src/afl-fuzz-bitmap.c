@@ -216,6 +216,40 @@ void init_count_class16(void) {
    This function is called after every exec() on a fairly large buffer, so
    it needs to be fast. We do this in 32-bit and 64-bit flavors. */
 
+/* Update singleton counts for Good-Turing estimation when paths are re-hit */
+void update_singleton_tracking(afl_state_t *afl) {
+
+  if (unlikely(!afl->adaptive_mode)) return;
+
+  /* Iterate through bitmap and update hit counts */
+  u8 *trace = afl->fsrv.trace_bits;
+  u32 i;
+
+  for (i = 0; i < afl->path_hit_counts_size && i < afl->fsrv.real_map_size; i++) {
+
+    if (trace[i]) {
+
+      /* This path was hit in current execution */
+      u32 prev_count = afl->path_hit_counts[i];
+
+      /* If this path went from 1 hit to 2+ hits, it's no longer a singleton */
+      if (prev_count == 1) {
+        if (afl->singleton_paths > 0) {
+          afl->singleton_paths--;
+        }
+      }
+
+      /* Increment hit count (cap at reasonable max to prevent overflow) */
+      if (afl->path_hit_counts[i] < 0xFFFFFFFF) {
+        afl->path_hit_counts[i]++;
+      }
+
+    }
+
+  }
+
+}
+
 inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
 #ifdef WORD_SIZE_64
@@ -533,6 +567,12 @@ u8 __attribute__((hot)) save_if_interesting(afl_state_t *afl, void *mem,
 
   if (unlikely(len == 0)) { return 0; }
 
+  /* If we disabled feedback for this seed and this is a normal exec
+     without crash or timeout, skip coverage-dependent processing. */
+  if (unlikely(afl->feedback_off_for_cur_seed) && likely(fault == FSRV_RUN_OK)) {
+    return 0;
+  }
+
   if (unlikely(fault == FSRV_RUN_TMOUT && afl->afl_env.afl_ignore_timeouts)) {
 
     if (unlikely(afl->schedule >= FAST && afl->schedule <= RARE)) {
@@ -742,6 +782,13 @@ u8 __attribute__((hot)) save_if_interesting(afl_state_t *afl, void *mem,
     }
 
     add_to_queue(afl, queue_fn, len, 0);
+
+    /* Update Good-Turing statistics for adaptive coverage mode */
+    if (unlikely(afl->adaptive_mode)) {
+      afl->total_paths++;
+      /* New paths start as singletons (hit count = 1) */
+      afl->singleton_paths++;
+    }
 
     if (unlikely(afl->fuzz_mode) &&
         likely(afl->switch_fuzz_mode && !afl->non_instrumented_mode)) {
